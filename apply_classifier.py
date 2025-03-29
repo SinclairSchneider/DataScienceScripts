@@ -9,11 +9,17 @@ import torch
 import pandas as pd
 import argparse
 
-def classify(id, numberOfThreads, df_all, nameTextColumn, batchSize, model_name):
+#nameTextColumn = "content"
+#numberOfThreads = 4
+#batchSize = 4
+#model_name = "SinclairSchneider/german_politic_EuroBERT-210m"
+#dataset_name = "SinclairSchneider/deutschlandfunk_de"
+
+def classify(id, numberOfThreads, df_all, nameTextColumn, batchSize, model_name, max_position_embeddings):
     #print("id: "+str(id))
     model = AutoModelForSequenceClassification.from_pretrained(model_name, trust_remote_code=True, torch_dtype = torch.bfloat16)
     model.eval()
-    tokenizer = AutoTokenizer.from_pretrained(model_name, do_lower_case=False, TOKENIZERS_PARALLELISM=True, trust_remote_code=True, max_length=8192)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, do_lower_case=False, TOKENIZERS_PARALLELISM=True, trust_remote_code=True, max_length=max_position_embeddings)
     pipe = pipeline("text-classification", model=model, tokenizer=tokenizer, trust_remote_code=True, device=id, torch_dtype = torch.bfloat16)
     
     df_thread = [df_all.iloc[x:x+math.ceil(len(df_all)/numberOfThreads)] for x in list(range(len(df_all)))[::math.ceil(len(df_all)/numberOfThreads)]][id]
@@ -44,6 +50,7 @@ def main():
     parser.add_argument('--text_column', nargs='?', type=str, help='name of the text column of the dataset, default content', default='content')
     parser.add_argument('--gpus', nargs='?', type=int, help='number of GPUs, default 4', default=4)
     parser.add_argument('--batch_size', nargs='?', type=int, help='batch size, default 4', default=4)
+    parser.add_argument('--max_position_embeddings', nargs='?', type=int, help='max position embeddings (max input of the model), default 8192', default=8192)
     parser.add_argument('--testing', action='store_true', help='use just 1%% of the dataset for testing') 
 
     args = parser.parse_args()
@@ -53,6 +60,7 @@ def main():
     batchSize = args.batch_size
     nameTextColumn = args.text_column
     testing = args.testing
+    max_position_embeddings = args.max_position_embeddings
     
     if ".json" in dataset_name:
         df = pd.read_json(dataset_name)
@@ -73,7 +81,8 @@ def main():
     lnameTextColumn = [nameTextColumn]*numberOfThreads
     lbatchSize = [batchSize]*numberOfThreads
     lmodel_name = [model_name]*numberOfThreads
-    lArguments = list(zip(lid, lNumberOfThreads, ldf, lnameTextColumn, lbatchSize, lmodel_name))
+    lmax_position_embeddings = [max_position_embeddings]*numberOfThreads
+    lArguments = list(zip(lid, lNumberOfThreads, ldf, lnameTextColumn, lbatchSize, lmodel_name, lmax_position_embeddings))
 
     with multiprocessing.Pool(processes=numberOfThreads) as pool:
         result = pool.starmap(classify, lArguments)
