@@ -28,7 +28,8 @@ def classify(id, numberOfThreads, df_all, nameTextColumn, batchSize, model_name,
     extraColumns = {}
     for batch in tqdm(batches):
         with torch.no_grad():
-            results = pipe(list(batch[nameTextColumn]), top_k=None, batch_size=batchSize)
+            batch_input = [" ".join(x.split(" ")[:max_position_embeddings]) for x in list(batch[nameTextColumn])]
+            results = pipe(batch_input, top_k=None, batch_size=batchSize)
         #torch.cuda.empty_cache()
         for result in results:
             for result_label in result:
