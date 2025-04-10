@@ -20,7 +20,7 @@ def classify(id, numberOfThreads, df_all, nameTextColumn, batchSize, model_name,
     model = AutoModelForSequenceClassification.from_pretrained(model_name, trust_remote_code=True, torch_dtype = torch.bfloat16)
     model.eval()
     tokenizer = AutoTokenizer.from_pretrained(model_name, do_lower_case=False, TOKENIZERS_PARALLELISM=True, trust_remote_code=True, max_length=max_position_embeddings, truncation=True)
-    pipe = pipeline("text-classification", model=model, tokenizer=tokenizer, trust_remote_code=True, device=id, torch_dtype = torch.bfloat16, truncation=True)
+    pipe = pipeline("text-classification", model=model, tokenizer=tokenizer, trust_remote_code=True, device=id, torch_dtype = torch.bfloat16, max_length=max_position_embeddings, truncation=True)
     
     df_thread = [df_all.iloc[x:x+math.ceil(len(df_all)/numberOfThreads)] for x in list(range(len(df_all)))[::math.ceil(len(df_all)/numberOfThreads)]][id]
     batches = [df_thread.iloc[x:x+batchSize] for x in list(range(len(df_thread)))[::batchSize]]
