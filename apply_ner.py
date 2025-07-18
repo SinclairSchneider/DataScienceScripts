@@ -28,7 +28,11 @@ def ner(id, numberOfThreads, df_all, nameTextColumn):
     for batch in tqdm(batches):
         batch_input = list(batch[nameTextColumn])[0]
         batch_input = batch_input if batch_input != None else ""
-        lang = detect(text=batch_input.replace("\n", ""), low_memory=True).get('lang', '')
+        try:
+            lang = detect(text=batch_input.replace("\n", ""), low_memory=True).get('lang', '')
+        except:
+            print("Exception in language detection. Continue with English.")
+            lang = "en"
         l_lang.append(lang)
     
         if lang in nlp_dict:
