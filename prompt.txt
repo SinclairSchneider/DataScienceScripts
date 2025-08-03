@@ -1,0 +1,16 @@
+task: Imagine you had to find search terms for twitter to find news related to the following text, what would this search terms be?
+Use logical operators like AND, OR, NOT by placing AND, OR, - between the words.
+Combine up to three terms with logical operators.
+The search results shoudn't become too ambiguous. 
+Try to understand the narrative and then find search terms for this narrative.
+Use search terms common for social media.
+Do not translate logical operators. Do not add any extra information besides json!
+Answer in json
+Example:
+{
+    "search_terms_german": ["Russland AND Putin", "Selenskyj AND Ukraine", ...],
+    "search_terms_english": ["Russia AND Putin", "Selenskyj AND Ukraine", ...],
+    "search_terms_russian": ["Россия AND Путин", "Зеленский AND Украина", ...],
+}
+
+text:
