@@ -69,8 +69,14 @@ def get_llm_and_tokenizer(model_name):
     elif model_name == "deepseek-r1-70b":
         model_name_hf = "RedHatAI/DeepSeek-R1-Distill-Llama-70B-quantized.w4a16"
         tokenizer = AutoTokenizer.from_pretrained(model_name_hf, trust_remote_code=True)
+    elif model_name == "gpt-oss-20b":
+        model_name_hf = "openai/gpt-oss-20b"
+        tokenizer = AutoTokenizer.from_pretrained(model_name_hf, trust_remote_code=True)
+    elif model_name == "glm-z1-32b":
+        model_name_hf = "duydq12/GLM-Z1-32B-0414-FP8-dynamic"
+        tokenizer = AutoTokenizer.from_pretrained(model_name_hf, trust_remote_code=True)
     else:
-        raise Exception("Please chose one of the models: gemma-3-27b, llama-3.3-70b, qwen3-30b, qwen3-32b, deepseek-r1-70b")
+        raise Exception("Please chose one of the models: gemma-3-27b, llama-3.3-70b, qwen3-30b, qwen3-32b, deepseek-r1-70b, gpt-oss-20b")
 
     llm = LLM(model=model_name_hf, trust_remote_code=True, max_model_len=8192)
 
@@ -99,7 +105,8 @@ def prompt(id, number_of_threads, df_all, text_column_name, model_name, max_mode
     llm, tokenizer = get_llm_and_tokenizer(model_name)
     prompts = tokenizer.apply_chat_template([get_prompt(tokenizer, text, template) for text in texts], tokenize=False, add_generation_prompt=True)
     outputs = llm.generate(prompts, SamplingParams(temperature=0.8, max_tokens=max_model_len))
-    output_texts = [x.outputs[0].text.replace("```json", "").replace("```", "").strip() if "</think>" not in x.outputs[0].text else x.outputs[0].text.split("</think>")[1].replace("```json", "").replace("```", "").strip() for x in outputs]
+    output_texts = [x.outputs[0].text.replace("```json", "").replace("```", "").strip() if "</think>" not in x.outputs[0].text.replace("assistantfinal", "</think>") \
+                    else x.outputs[0].text.replace("assistantfinal", "</think>").split("</think>")[1].replace("```json", "").replace("```", "").strip() for x in outputs]
 
     df_thread[output_column_name] = output_texts
     
@@ -107,7 +114,7 @@ def prompt(id, number_of_threads, df_all, text_column_name, model_name, max_mode
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', nargs='?', type=str, help='model to be used, default gemma-3-27b. Possible models: gemma-3-27b, llama-3.3-70b, qwen3-30b, qwen3-32b, deepseek-r1-70b', default='gemma-3-27b')
+    parser.add_argument('--model', nargs='?', type=str, help='model to be used, default gemma-3-27b. Possible models: gemma-3-27b, llama-3.3-70b, qwen3-30b, qwen3-32b, deepseek-r1-70b, gpt-oss-20b, glm-z1-32b', default='gemma-3-27b')
     parser.add_argument('--dataset', nargs='?', type=str, help='dataset (huggingface or pandas-json) to be used, default SinclairSchneider/eu_vs_disinfo', default='SinclairSchneider/eu_vs_disinfo')
     parser.add_argument('--text_column', nargs='?', type=str, help='name of the text column of the dataset, default summary', default='summary')
     parser.add_argument('--gpus', nargs='?', type=int, help='number of GPUs, default 4', default=4)
