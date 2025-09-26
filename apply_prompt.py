@@ -51,7 +51,7 @@ class NonDaemonPool(mpp.Pool):
     Process = _NoDaemonProcess
     """A multiprocessing Pool whose workers can spawn children."""
 
-def get_llm_and_tokenizer(model_name):
+def get_llm_and_tokenizer(model_name, gpu_memory_utilization):
     model_name_hf = ""
     model_name = model_name.lower()
     if model_name == "gemma-3-27b":
@@ -78,8 +78,11 @@ def get_llm_and_tokenizer(model_name):
     else:
         raise Exception("Please chose one of the models: gemma-3-27b, llama-3.3-70b, qwen3-30b, qwen3-32b, deepseek-r1-70b, gpt-oss-20b")
 
-    llm = LLM(model=model_name_hf, trust_remote_code=True, max_model_len=8192)
-
+    if gpu_memory_utilization == 0.0:
+        llm = LLM(model=model_name_hf, trust_remote_code=True, max_model_len=8192)
+    else:
+        llm = LLM(model=model_name_hf, trust_remote_code=True, max_model_len=8192, gpu_memory_utilization=gpu_memory_utilization)
+    
     return llm, tokenizer
 
 def get_prompt(tokenizer, text, template):
@@ -97,13 +100,13 @@ def get_prompt(tokenizer, text, template):
         
     return chat
 
-def prompt(id, number_of_threads, df_all, text_column_name, model_name, max_model_len, template, output_column_name):
+def prompt(id, number_of_threads, df_all, text_column_name, model_name, max_model_len, template, output_column_name, gpu_memory_utilization):
     os.environ["CUDA_VISIBLE_DEVICES"] = str(id)
     torch.cuda.set_device(0)
     
     df_thread = [df_all.iloc[x:x+math.ceil(len(df_all)/number_of_threads)] for x in list(range(len(df_all)))[::math.ceil(len(df_all)/number_of_threads)]][id].copy()
     texts = list(df_thread[text_column_name])
-    llm, tokenizer = get_llm_and_tokenizer(model_name)
+    llm, tokenizer = get_llm_and_tokenizer(model_name, gpu_memory_utilization)
     prompts = tokenizer.apply_chat_template([get_prompt(tokenizer, text, template) for text in texts], tokenize=False, add_generation_prompt=True)
     outputs = llm.generate(prompts, SamplingParams(temperature=0.8, max_tokens=max_model_len))
     output_texts = [x.outputs[0].text.replace("```json", "").replace("```", "").strip() if "</think>" not in x.outputs[0].text.replace("assistantfinal", "</think>") \
@@ -122,7 +125,8 @@ def main():
     parser.add_argument('--max_model_len', nargs='?', type=int, help='max model lengeth, default 8192', default=8192)
     parser.add_argument('--output_column_name', nargs='?', type=str, help='name of the output column to be created. Default model name', default='')
     parser.add_argument('--prompt_file_name', nargs='?', type=str, help='name of the file containing the prompt template. Default prompt.txt', default='prompt.txt')
-    parser.add_argument('--testing', action='store_true', help='use just 1%% of the dataset for testing') 
+    parser.add_argument('--gpu_memory_utilization', nargs='?', type=float, help='Value between 0.0 and 1.0 for GPU usage', default=0.0)
+    parser.add_argument('--testing', action='store_true', help='use just 1%% of the dataset for testing')
 
     args = parser.parse_args()
     model_name = args.model
@@ -133,6 +137,7 @@ def main():
     prompt_file_name = args.prompt_file_name
     testing = args.testing
     max_model_len = args.max_model_len
+    gpu_memory_utilization = args.gpu_memory_utilization
     
     if ".json" in dataset_name:
         df = pd.read_json(dataset_name)
@@ -162,8 +167,9 @@ def main():
     lmax_model_len = [max_model_len]*numberOfThreads
     loutput_column_name = [output_column_name]*numberOfThreads
     ltemplate = [template]*numberOfThreads
+    lgpu_memory_utilization = [gpu_memory_utilization]*numberOfThreads
     
-    lArguments = list(zip(lid, lNumberOfThreads, ldf, lnameTextColumn, lmodel_name, lmax_model_len, ltemplate, loutput_column_name))
+    lArguments = list(zip(lid, lNumberOfThreads, ldf, lnameTextColumn, lmodel_name, lmax_model_len, ltemplate, loutput_column_name, lgpu_memory_utilization))
 
     #with multiprocessing.Pool(processes=numberOfThreads) as pool:
     with NonDaemonPool(processes=numberOfThreads) as pool:
