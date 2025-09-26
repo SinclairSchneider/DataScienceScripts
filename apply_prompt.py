@@ -98,18 +98,25 @@ def get_pompt_chat(tokenizer, prompt_text):
     return chat
 
 def get_prompt(tokenizer, text, template, max_model_len, output_reservation_length = 500):
+    tokenizer = getattr(tokenizer, "tokenizer", tokenizer)
     text = text if text is not None else ""
     prompt_text = template + text
     chat = get_pompt_chat(tokenizer, prompt_text)
 
-    tokens = tokenizer.apply_chat_template(chat, tokenize=True, add_generation_prompt=True)
-    overhead = max_model_len - (len(tokens[0]) + output_reservation_length)
-    if overhead < 0:
-        text = tokenizer.decode(tokenizer.tokenizer(text, add_special_tokens=False).input_ids[-overhead:], skip_special_tokens=True)
-        prompt_text = template + text
-        chat = get_pompt_chat(tokenizer, prompt_text)
-        result = tokenizer.apply_chat_template(chat, tokenize=False, add_generation_prompt=True)
-        return result
+    if len(prompt_text.split(" ")) > (max_model_len/2):
+        tokens = tokenizer.apply_chat_template(chat, tokenize=True, add_generation_prompt=True)
+        if type(tokens[0]) == type(0):
+            len_tokens = len(tokens)
+        else:
+            len_tokens = len(tokens[0])
+                             
+        overhead = max_model_len - (len_tokens + output_reservation_length)
+        if overhead < 0:
+            text = tokenizer.decode(tokenizer(text, add_special_tokens=False).input_ids[-overhead:], skip_special_tokens=True)
+            prompt_text = template + text
+            chat = get_pompt_chat(tokenizer, prompt_text)
+            result = tokenizer.apply_chat_template(chat, tokenize=False, add_generation_prompt=True)
+            return result
     
     result = tokenizer.apply_chat_template(chat, tokenize=False, add_generation_prompt=True)
     return result
