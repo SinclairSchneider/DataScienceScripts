@@ -83,6 +83,7 @@ def get_llm_and_tokenizer(model_name):
     return llm, tokenizer
 
 def get_prompt(tokenizer, text, template):
+    text = text if text is not None else ""
     prompt_text = template + text
     if "gemma" in str(type(tokenizer)):
         chat = [
