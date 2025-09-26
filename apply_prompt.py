@@ -85,9 +85,7 @@ def get_llm_and_tokenizer(model_name, gpu_memory_utilization):
     
     return llm, tokenizer
 
-def get_prompt(tokenizer, text, template):
-    text = text if text is not None else ""
-    prompt_text = template + text
+def get_pompt_chat(tokenizer, prompt_text):
     if "gemma" in str(type(tokenizer)):
         chat = [
             {"role": "user", "content": [{"type": "text", "text": prompt_text}]},
@@ -97,8 +95,24 @@ def get_prompt(tokenizer, text, template):
         chat = [
             {"role": "user", "content": prompt_text,},
         ]
-        
     return chat
+
+def get_prompt(tokenizer, text, template, max_model_len, output_reservation_length = 500):
+    text = text if text is not None else ""
+    prompt_text = template + text
+    chat = get_pompt_chat(tokenizer, prompt_text)
+
+    tokens = tokenizer.apply_chat_template(chat, tokenize=True, add_generation_prompt=True)
+    overhead = max_model_len - (len(tokens[0]) + output_reservation_length)
+    if overhead < 0:
+        text = tokenizer.decode(tokenizer.tokenizer(text, add_special_tokens=False).input_ids[-overhead:], skip_special_tokens=True)
+        prompt_text = template + text
+        chat = get_pompt_chat(tokenizer, prompt_text)
+        result = tokenizer.apply_chat_template(chat, tokenize=False, add_generation_prompt=True)
+        return result
+    
+    result = tokenizer.apply_chat_template(chat, tokenize=False, add_generation_prompt=True)
+    return result
 
 def prompt(id, number_of_threads, df_all, text_column_name, model_name, max_model_len, template, output_column_name, gpu_memory_utilization):
     os.environ["CUDA_VISIBLE_DEVICES"] = str(id)
@@ -107,7 +121,7 @@ def prompt(id, number_of_threads, df_all, text_column_name, model_name, max_mode
     df_thread = [df_all.iloc[x:x+math.ceil(len(df_all)/number_of_threads)] for x in list(range(len(df_all)))[::math.ceil(len(df_all)/number_of_threads)]][id].copy()
     texts = list(df_thread[text_column_name])
     llm, tokenizer = get_llm_and_tokenizer(model_name, gpu_memory_utilization)
-    prompts = tokenizer.apply_chat_template([get_prompt(tokenizer, text, template) for text in texts], tokenize=False, add_generation_prompt=True)
+    prompts = [get_prompt(tokenizer, text, template, max_model_len) for text in tqdm(texts)]
     outputs = llm.generate(prompts, SamplingParams(temperature=0.8, max_tokens=max_model_len))
     output_texts = [x.outputs[0].text.replace("```json", "").replace("```", "").strip() if "</think>" not in x.outputs[0].text.replace("assistantfinal", "</think>") \
                     else x.outputs[0].text.replace("assistantfinal", "</think>").split("</think>")[1].replace("```json", "").replace("```", "").strip() for x in outputs]
