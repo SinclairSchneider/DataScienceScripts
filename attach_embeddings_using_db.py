@@ -73,7 +73,7 @@ def get_batch(engine, db_database_name, db_input_table, db_input_hash_column, nu
     sql_statement = "SELECT * \
                      FROM "+db_database_name+"."+db_input_table+" \
                      WHERE cityHash64("+db_input_hash_column+")%%"+str(number_of_threads)+"="+str(thread_id)+" \
-                     and cityHash64("+db_input_hash_column+"+1)%%"+str(batches_per_thread)+"="+str(batch_id)
+                     and cityHash64(cityHash64("+db_input_hash_column+"))%%"+str(batches_per_thread)+"="+str(batch_id)
     if limit > 0:
         sql_statement = sql_statement + " LIMIT "+str(limit)
     df = pd.read_sql(sql_statement, con=engine)
