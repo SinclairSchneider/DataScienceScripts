@@ -107,14 +107,19 @@ def process_thread(thread_id, number_of_threads, config):
         limit = 0
 
     if gpu_memory_utilization == 0.0:
-        model = LLM(model=model_name, task="embed", trust_remote_code=True)
+        model = LLM(model=model_name, trust_remote_code=True, runner="pooling")
     else:
-        model = LLM(model=model_name, task="embed", trust_remote_code=True, gpu_memory_utilization=gpu_memory_utilization)
+        model = LLM(model=model_name, trust_remote_code=True, runner="pooling", gpu_memory_utilization=gpu_memory_utilization)
+
+    # Define the recommended pre-prompt for Qwen embedding indexing
+    instruction = "Identify the main topic of the following text: "
     
     for batch_id in tqdm(range(batches_per_thread)):
         df = get_batch(engine, db_database_name, db_input_table, db_input_hash_column, number_of_threads, thread_id, batches_per_thread, batch_id, limit)
         texts = list(df[db_input_text_column])
         texts = [str(x) for x in texts]
+
+        texts = [instruction + str(x) for x in texts]
         outputs = model.embed(texts)
 
         embeddings = torch.tensor([x.outputs.embedding for x in outputs], dtype=torch.float32).numpy()
