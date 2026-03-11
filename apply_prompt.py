@@ -119,7 +119,6 @@ def get_llm_and_tokenizer(model_name, gpu_memory_utilization, tensor_parallel_si
     min_len = 1024
     llm = None
     
-    # Auto-Downgrade Loop falls KV Cache out of memory läuft
     while current_max_len >= min_len:
         llm_kwargs = {
             "model": model_name_hf,
@@ -146,23 +145,33 @@ def get_llm_and_tokenizer(model_name, gpu_memory_utilization, tensor_parallel_si
     
     return llm, tokenizer, int(current_max_len)
 
-def get_pompt_chat(tokenizer, prompt_text):
-    if "gemma" in str(type(tokenizer)):
-        chat = [
+def get_pompt_chat(tokenizer, prompt_text, model_name=""):
+    chat = []
+    
+    # System Prompt Injection für Qwen UND DeepSeek Reasoning
+    if "qwen" in model_name.lower() or "deepseek" in model_name.lower():
+        chat.append({
+            "role": "system",
+            "content": "You are a helpful AI assistant. You must first think step-by-step about the problem. Put your entire thinking process completely inside <think> and </think> tags. Only after the </think> tag, provide your final answer."
+        })
+        
+    if "gemma" in str(type(tokenizer)).lower() or "gemma" in model_name.lower():
+        chat.extend([
             {"role": "user", "content": [{"type": "text", "text": prompt_text}]},
             {"role": "assistant", "content": []}
-        ]
+        ])
     else:
-        chat = [
-            {"role": "user", "content": prompt_text,},
-        ]
+        chat.append(
+            {"role": "user", "content": prompt_text}
+        )
     return chat
 
-def get_prompt(tokenizer, text, template, max_model_len, output_reservation_length = 500):
+def get_prompt(tokenizer, text, template, max_model_len, model_name="", output_reservation_length=500):
     tokenizer = getattr(tokenizer, "tokenizer", tokenizer)
     text = text if text is not None else ""
     prompt_text = template + text
-    chat = get_pompt_chat(tokenizer, prompt_text)
+    
+    chat = get_pompt_chat(tokenizer, prompt_text, model_name)
 
     if len(prompt_text.split(" ")) > (max_model_len/2):
         tokens = tokenizer.apply_chat_template(chat, tokenize=True, add_generation_prompt=True)
@@ -175,7 +184,7 @@ def get_prompt(tokenizer, text, template, max_model_len, output_reservation_leng
         if overhead < 0:
             text = tokenizer.decode(tokenizer(text, add_special_tokens=False).input_ids[-overhead:], skip_special_tokens=True)
             prompt_text = template + text
-            chat = get_pompt_chat(tokenizer, prompt_text)
+            chat = get_pompt_chat(tokenizer, prompt_text, model_name)
             result = tokenizer.apply_chat_template(chat, tokenize=False, add_generation_prompt=True)
             return result
     
@@ -188,16 +197,34 @@ def prompt(id, cuda_devices, number_of_threads, df_all, text_column_name, model_
     df_thread = [df_all.iloc[x:x+math.ceil(len(df_all)/number_of_threads)] for x in list(range(len(df_all)))[::math.ceil(len(df_all)/number_of_threads)]][id].copy()
     texts = list(df_thread[text_column_name])
     
-    # LLM laden und die TATSÄCHLICHE (ggf. reduzierte) max_model_len empfangen
     llm, tokenizer, actual_max_len = get_llm_and_tokenizer(model_name, gpu_memory_utilization, tensor_parallel_size, max_model_len)
     
-    prompts = [get_prompt(tokenizer, text, template, actual_max_len) for text in tqdm(texts)]
+    prompts = [get_prompt(tokenizer, text, template, actual_max_len, model_name) for text in tqdm(texts)]
     outputs = llm.generate(prompts, SamplingParams(temperature=0.8, max_tokens=actual_max_len))
     
-    output_texts = [x.outputs[0].text.replace("```json", "").replace("```", "").strip() if "</think>" not in x.outputs[0].text.replace("assistantfinal", "</think>") \
-                    else x.outputs[0].text.replace("assistantfinal", "</think>").split("</think>")[1].replace("```json", "").replace("```", "").strip() for x in outputs]
+    # Sauberes Trennen von Output und Reasoning
+    final_outputs = []
+    reasoning_outputs = []
+    
+    for x in outputs:
+        raw_text = x.outputs[0].text
+        # Falls das Modell eine andere Konvention verwendet hat, normalisieren wir das:
+        raw_text = raw_text.replace("assistantfinal", "</think>")
+        
+        if "</think>" in raw_text:
+            parts = raw_text.split("</think>")
+            reasoning = parts[0].replace("<think>", "").strip()
+            final_answer = parts[1].replace("```json", "").replace("```", "").strip()
+        else:
+            reasoning = ""
+            final_answer = raw_text.replace("```json", "").replace("```", "").strip()
+            
+        final_outputs.append(final_answer)
+        reasoning_outputs.append(reasoning)
 
-    df_thread[output_column_name] = output_texts
+    # In den Dataframe schreiben
+    df_thread[output_column_name] = final_outputs
+    df_thread[f"{output_column_name}_reasoning"] = reasoning_outputs
     
     return df_thread
 
@@ -206,6 +233,7 @@ def main():
     parser.add_argument('--model', nargs='?', type=str, help='model to be used', default='gemma-3-27b')
     parser.add_argument('--dataset', nargs='?', type=str, help='dataset to be used', default='SinclairSchneider/eu_vs_disinfo')
     parser.add_argument('--text_column', nargs='?', type=str, help='name of the text column of the dataset', default='summary')
+    parser.add_argument('--vllm_url', nargs='?', type=str, help='URL to vLLM Server. If set, no local model will be loaded', default='')
     parser.add_argument('--gpus', nargs='?', type=int, help='number of GPUs, default 4', default=4)
     parser.add_argument('--max_model_len', nargs='?', type=int, help='max model length, default 8192', default=8192)
     parser.add_argument('--output_column_name', nargs='?', type=str, help='name of the output column to be created. Default model name', default='')
