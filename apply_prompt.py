@@ -258,7 +258,14 @@ def main():
     if numberOfThreads == 0:
         raise ValueError(f"Nicht genügend GPUs. Das Modell '{model_name}' benötigt {tensor_parallel_size} GPUs pro Instanz, aber es wurden nur {total_gpus} angegeben.")
 
-    cuda_devices_list = [",".join(map(str, range(i * tensor_parallel_size, (i + 1) * tensor_parallel_size))) for i in range(numberOfThreads)]
+    # Fetch available GPUs from the environment, otherwise default to a basic range
+    env_gpus = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    if env_gpus:
+        gpu_pool = env_gpus.split(",")
+    else:
+        gpu_pool = [str(x) for x in range(total_gpus)]
+        
+    cuda_devices_list = [",".join(gpu_pool[i * tensor_parallel_size : (i + 1) * tensor_parallel_size]) for i in range(numberOfThreads)]
     
     if ".json" in dataset_name:
         df = pd.read_json(dataset_name)
