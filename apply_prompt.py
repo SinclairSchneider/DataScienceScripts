@@ -67,8 +67,10 @@ def get_tensor_parallel_size(model_name):
             
     elif model_name_lower == "qwen3.5-122b-a10b-fp8":
         if vram_gb >= 130:
-            print(f"[INFO] Detected {vram_gb:.1f}GB VRAM per GPU. Running 122B model on 1 GPU.")
-            return 1
+            #print(f"[INFO] Detected {vram_gb:.1f}GB VRAM per GPU. Running 122B model on 1 GPU.")
+            #return 1
+            print(f"[INFO] Detected {vram_gb:.1f}GB VRAM per GPU. Spreading 122B model across 2 GPUs.")
+            return 2
         elif vram_gb >= 80:
             print(f"[INFO] Detected {vram_gb:.1f}GB VRAM per GPU. Spreading 122B model across 2 GPUs.")
             return 2
