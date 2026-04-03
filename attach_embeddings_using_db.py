@@ -55,6 +55,7 @@ def generate_config():
         'model': 'Qwen/Qwen3-Embedding-8B',
         'desired_batch_size': 100000,
         'number_of_threads': 4,
+        'instruction': 'Identify the main topic of the following text: ',
         'db_database_name': 'default',
         'db_username': 'default',
         'db_password': 'password',
@@ -86,6 +87,7 @@ def process_thread(thread_id, number_of_threads, config):
     testing = config.get("testing", False)
     desired_batch_size = config.get("desired_batch_size", 100000)
     model_name = config.get("model", "Qwen/Qwen3-Embedding-8B")
+    instruction = config.get('instruction', 'Identify the main topic of the following text: ')
     db_database_name = config.get("db_database_name", "default")
     db_username = config.get("db_username", "default")
     db_password = config.get("db_password", "")
@@ -112,7 +114,7 @@ def process_thread(thread_id, number_of_threads, config):
         model = LLM(model=model_name, trust_remote_code=True, runner="pooling", gpu_memory_utilization=gpu_memory_utilization)
 
     # Define the recommended pre-prompt for Qwen embedding indexing
-    instruction = "Identify the main topic of the following text: "
+    #instruction = "Identify the main topic of the following text: "
     
     for batch_id in tqdm(range(batches_per_thread)):
         df = get_batch(engine, db_database_name, db_input_table, db_input_hash_column, number_of_threads, thread_id, batches_per_thread, batch_id, limit)
