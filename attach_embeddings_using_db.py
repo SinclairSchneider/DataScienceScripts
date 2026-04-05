@@ -119,7 +119,8 @@ def process_thread(thread_id, number_of_threads, config):
     for batch_id in tqdm(range(batches_per_thread)):
         df = get_batch(engine, db_database_name, db_input_table, db_input_hash_column, number_of_threads, thread_id, batches_per_thread, batch_id, limit)
         texts = list(df[db_input_text_column])
-        texts = [str(x) for x in texts]
+        #texts = [str(x) for x in texts]
+        texts = [str(x)[:120000] for x in texts]
 
         texts = [instruction + str(x) for x in texts]
         outputs = model.embed(texts)
