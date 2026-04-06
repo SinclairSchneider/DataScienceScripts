@@ -199,7 +199,15 @@ def get_prompt(tokenizer, text, template, max_model_len, model_name="", output_r
 def prompt(id, cuda_devices, number_of_threads, df_all, text_column_name, model_name, max_model_len, template, output_column_name, gpu_memory_utilization, tensor_parallel_size):
     os.environ["CUDA_VISIBLE_DEVICES"] = cuda_devices
     
-    df_thread = [df_all.iloc[x:x+math.ceil(len(df_all)/number_of_threads)] for x in list(range(len(df_all)))[::math.ceil(len(df_all)/number_of_threads)]][id].copy()
+    # FIX 1: Assign a unique MASTER_PORT to prevent torch.distributed collisions
+    os.environ["MASTER_PORT"] = str(29500 + id)
+    
+    # FIX 2: Safely chunk the dataframe (prevents IndexError on uneven splits)
+    chunk_size = math.ceil(len(df_all) / number_of_threads)
+    start_idx = id * chunk_size
+    end_idx = min((id + 1) * chunk_size, len(df_all))
+    df_thread = df_all.iloc[start_idx:end_idx].copy()
+    
     texts = list(df_thread[text_column_name])
     
     llm, tokenizer, actual_max_len = get_llm_and_tokenizer(model_name, gpu_memory_utilization, tensor_parallel_size, max_model_len)
@@ -207,19 +215,19 @@ def prompt(id, cuda_devices, number_of_threads, df_all, text_column_name, model_
     prompts = [get_prompt(tokenizer, text, template, actual_max_len, model_name) for text in tqdm(texts)]
     outputs = llm.generate(prompts, SamplingParams(temperature=0.8, max_tokens=actual_max_len))
     
-    # Sauberes Trennen von Output und Reasoning
+    # Clean extraction of Output and Reasoning
     final_outputs = []
     reasoning_outputs = []
     
     for x in outputs:
         raw_text = x.outputs[0].text
-        # Falls das Modell eine andere Konvention verwendet hat, normalisieren wir das:
         raw_text = raw_text.replace("assistantfinal", "</think>")
         
         if "</think>" in raw_text:
             parts = raw_text.split("</think>")
             reasoning = parts[0].replace("<think>", "").strip()
-            final_answer = parts[1].replace("```json", "").replace("```", "").strip()
+            # Failsafe: Ensure parts[1] exists if the model hallucinated the tags
+            final_answer = parts[1].replace("```json", "").replace("```", "").strip() if len(parts) > 1 else ""
         else:
             reasoning = ""
             final_answer = raw_text.replace("```json", "").replace("```", "").strip()
@@ -227,9 +235,21 @@ def prompt(id, cuda_devices, number_of_threads, df_all, text_column_name, model_
         final_outputs.append(final_answer)
         reasoning_outputs.append(reasoning)
 
-    # In den Dataframe schreiben
+    # Write back to the dataframe
     df_thread[output_column_name] = final_outputs
     df_thread[f"{output_column_name}_reasoning"] = reasoning_outputs
+    
+    # FIX 3: Gracefully destroy the vLLM instance and free GPU resources so the process can exit
+    del llm
+    try:
+        from vllm.distributed.parallel_state import destroy_model_parallel
+        destroy_model_parallel()
+    except ImportError:
+        pass # Catch if using an older vLLM version without this function
+        
+    import gc
+    gc.collect()
+    torch.cuda.empty_cache()
     
     return df_thread
 
