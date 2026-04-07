@@ -153,8 +153,8 @@ def get_llm_and_tokenizer(model_name, gpu_memory_utilization, tensor_parallel_si
 def get_pompt_chat(tokenizer, prompt_text, model_name=""):
     chat = []
     
-    # System Prompt Injection für Qwen UND DeepSeek Reasoning
-    if "qwen" in model_name.lower() or "deepseek" in model_name.lower():
+    # DeepSeek might still need the manual injection, but we remove Qwen from here
+    if "deepseek" in model_name.lower():
         chat.append({
             "role": "system",
             "content": "You are a helpful AI assistant. You must first think step-by-step about the problem. Put your entire thinking process completely inside <think> and </think> tags. Only after the </think> tag, provide your final answer."
@@ -178,8 +178,14 @@ def get_prompt(tokenizer, text, template, max_model_len, model_name="", output_r
     
     chat = get_pompt_chat(tokenizer, prompt_text, model_name)
 
+    # Setup specific kwargs for the chat template
+    # If it's a Qwen model, pass enable_thinking=True to activate native reasoning tags
+    template_kwargs = {"add_generation_prompt": True}
+    if "qwen" in model_name.lower():
+        template_kwargs["enable_thinking"] = True  # Set to False if you want to strictly disable thinking
+        
     if len(prompt_text.split(" ")) > (max_model_len/2):
-        tokens = tokenizer.apply_chat_template(chat, tokenize=True, add_generation_prompt=True)
+        tokens = tokenizer.apply_chat_template(chat, tokenize=True, **template_kwargs)
         if type(tokens[0]) == type(0):
             len_tokens = len(tokens)
         else:
@@ -187,27 +193,19 @@ def get_prompt(tokenizer, text, template, max_model_len, model_name="", output_r
                              
         overhead = max_model_len - (len_tokens + output_reservation_length)
         if overhead < 0:
-            text = tokenizer.decode(tokenizer(text, add_special_tokens=False).input_ids[-overhead:], skip_special_tokens=True)
+            text = tokenizer.decode(tokenizer(text, add_special_tokens=False).input_ids[:overhead], skip_special_tokens=True)
             prompt_text = template + text
             chat = get_pompt_chat(tokenizer, prompt_text, model_name)
-            result = tokenizer.apply_chat_template(chat, tokenize=False, add_generation_prompt=True)
+            result = tokenizer.apply_chat_template(chat, tokenize=False, **template_kwargs)
             return result
     
-    result = tokenizer.apply_chat_template(chat, tokenize=False, add_generation_prompt=True)
+    result = tokenizer.apply_chat_template(chat, tokenize=False, **template_kwargs)
     return result
 
 def prompt(id, cuda_devices, number_of_threads, df_all, text_column_name, model_name, max_model_len, template, output_column_name, gpu_memory_utilization, tensor_parallel_size):
     os.environ["CUDA_VISIBLE_DEVICES"] = cuda_devices
     
-    # FIX 1: Assign a unique MASTER_PORT to prevent torch.distributed collisions
-    os.environ["MASTER_PORT"] = str(29500 + id)
-    
-    # FIX 2: Safely chunk the dataframe (prevents IndexError on uneven splits)
-    chunk_size = math.ceil(len(df_all) / number_of_threads)
-    start_idx = id * chunk_size
-    end_idx = min((id + 1) * chunk_size, len(df_all))
-    df_thread = df_all.iloc[start_idx:end_idx].copy()
-    
+    df_thread = [df_all.iloc[x:x+math.ceil(len(df_all)/number_of_threads)] for x in list(range(len(df_all)))[::math.ceil(len(df_all)/number_of_threads)]][id].copy()
     texts = list(df_thread[text_column_name])
     
     llm, tokenizer, actual_max_len = get_llm_and_tokenizer(model_name, gpu_memory_utilization, tensor_parallel_size, max_model_len)
@@ -215,19 +213,19 @@ def prompt(id, cuda_devices, number_of_threads, df_all, text_column_name, model_
     prompts = [get_prompt(tokenizer, text, template, actual_max_len, model_name) for text in tqdm(texts)]
     outputs = llm.generate(prompts, SamplingParams(temperature=0.8, max_tokens=actual_max_len))
     
-    # Clean extraction of Output and Reasoning
+    # Sauberes Trennen von Output und Reasoning
     final_outputs = []
     reasoning_outputs = []
     
     for x in outputs:
         raw_text = x.outputs[0].text
+        # Falls das Modell eine andere Konvention verwendet hat, normalisieren wir das:
         raw_text = raw_text.replace("assistantfinal", "</think>")
         
         if "</think>" in raw_text:
             parts = raw_text.split("</think>")
             reasoning = parts[0].replace("<think>", "").strip()
-            # Failsafe: Ensure parts[1] exists if the model hallucinated the tags
-            final_answer = parts[1].replace("```json", "").replace("```", "").strip() if len(parts) > 1 else ""
+            final_answer = parts[1].replace("```json", "").replace("```", "").strip()
         else:
             reasoning = ""
             final_answer = raw_text.replace("```json", "").replace("```", "").strip()
@@ -235,21 +233,9 @@ def prompt(id, cuda_devices, number_of_threads, df_all, text_column_name, model_
         final_outputs.append(final_answer)
         reasoning_outputs.append(reasoning)
 
-    # Write back to the dataframe
+    # In den Dataframe schreiben
     df_thread[output_column_name] = final_outputs
     df_thread[f"{output_column_name}_reasoning"] = reasoning_outputs
-    
-    # FIX 3: Gracefully destroy the vLLM instance and free GPU resources so the process can exit
-    del llm
-    try:
-        from vllm.distributed.parallel_state import destroy_model_parallel
-        destroy_model_parallel()
-    except ImportError:
-        pass # Catch if using an older vLLM version without this function
-        
-    import gc
-    gc.collect()
-    torch.cuda.empty_cache()
     
     return df_thread
 
