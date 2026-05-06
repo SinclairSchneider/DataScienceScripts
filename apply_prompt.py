@@ -111,6 +111,9 @@ def get_llm_and_tokenizer(model_name, gpu_memory_utilization, tensor_parallel_si
     elif model_name_lower == "qwen3.5-35b-a3b-fp8":
         model_name_hf = "Qwen/Qwen3.5-35B-A3B-FP8"
         tokenizer = AutoTokenizer.from_pretrained(model_name_hf, trust_remote_code=True)
+    elif model_name_lower == "qwen3.6-35b-a3b-fp8":
+        model_name_hf = "Qwen/Qwen3.6-35B-A3B-FP8"
+        tokenizer = AutoTokenizer.from_pretrained(model_name_hf, trust_remote_code=True)
     elif model_name_lower == "qwen3.5-122b-a10b-fp8":
         model_name_hf = "Qwen/Qwen3.5-122B-A10B-FP8"
         tokenizer = AutoTokenizer.from_pretrained(model_name_hf, trust_remote_code=True)
