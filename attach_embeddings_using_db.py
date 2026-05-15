@@ -80,8 +80,11 @@ def get_batch(engine, db_database_name, db_input_table, db_input_hash_column, nu
     df = pd.read_sql(sql_statement, con=engine)
     return df
 
-def process_thread(thread_id, number_of_threads, config):
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(thread_id)
+def process_thread(thread_id, number_of_threads, config, cuda_device):
+    os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
+    os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
+    os.environ["VLLM_USE_V1"] = "0"
+    os.environ["NCCL_IB_DISABLE"] = "1"
     torch.cuda.set_device(0)
 
     testing = config.get("testing", False)
@@ -178,6 +181,20 @@ def main():
                   WHERE cityHash64("+db_input_hash_column+")%%"+str(number_of_threads)+"=0", con=engine)
     batches_per_thread = int(df['divisor'][0])
 
+    env_gpus = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    if env_gpus:
+        gpu_pool = env_gpus.split(",")
+    else:
+        # Dynamically detect all available CUDA devices
+        num_gpus = torch.cuda.device_count()
+        gpu_pool = [str(x) for x in range(num_gpus)]
+
+    if number_of_threads > len(gpu_pool):
+        print("Not enough GPUs for the number of threads")
+        return
+
+    gpu_pool = gpu_pool[:number_of_threads]
+    
     config['testing'] = testing
     config['batches_per_thread'] = batches_per_thread
     config['gpu_memory_utilization'] = gpu_memory_utilization
@@ -186,7 +203,7 @@ def main():
     lnumber_of_threads = [number_of_threads]*number_of_threads
     lconfig = [config]*number_of_threads
 
-    lArguments = list(zip(lid, lnumber_of_threads, lconfig))
+    lArguments = list(zip(lid, lnumber_of_threads, lconfig, gpu_pool))
     with NonDaemonPool(processes=number_of_threads) as pool:
         pool.starmap(process_thread, lArguments)
 
