@@ -207,6 +207,7 @@ def get_prompt(tokenizer, text, template, max_model_len, model_name="", output_r
 
 def prompt(id, cuda_devices, number_of_threads, df_all, text_column_name, model_name, max_model_len, template, output_column_name, gpu_memory_utilization, tensor_parallel_size):
     os.environ["CUDA_VISIBLE_DEVICES"] = cuda_devices
+    os.environ["NCCL_IB_DISABLE"] = "1"
     
     df_thread = [df_all.iloc[x:x+math.ceil(len(df_all)/number_of_threads)] for x in list(range(len(df_all)))[::math.ceil(len(df_all)/number_of_threads)]][id].copy()
     texts = list(df_thread[text_column_name])
